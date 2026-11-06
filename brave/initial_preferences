@@ -1,0 +1,75 @@
+{
+  "distribution": {
+    "skip_first_run_ui": true,
+    "suppress_first_run_default_browser_prompt": true,
+    "import_bookmarks": false,
+    "import_history": false,
+    "import_home_page": false,
+    "import_search_engine": false,
+    "make_chrome_default": false,
+    "make_chrome_default_for_user": false
+  },
+  "browser": {
+    "has_seen_welcome_page": true,
+    "check_default_browser": false
+  },
+  "bookmark_bar": {
+    "show_on_all_tabs": false
+  },
+  "media_router": {
+    "enable_media_router": false
+  },
+  "credentials_enable_service": false,
+  "credentials_enable_autosignin": false,
+  "autofill": {
+    "profile_enabled": false,
+    "credit_card_enabled": false
+  },
+  "download": {
+    "default_directory": "__DOWNLOADS__",
+    "prompt_for_download": false
+  },
+  "brave": {
+    "default_browser_prompt_enabled": false,
+    "always_show_bookmark_bar_on_ntp": false,
+    "today": {
+      "opted_in": false,
+      "should_show_toolbar_button": false
+    },
+    "new_tab_page": {
+      "show_brave_news": false,
+      "show_rewards": false,
+      "show_brave_vpn": false,
+      "show_stats": false,
+      "show_clock": false,
+      "hide_all_widgets": true,
+      "show_background_image": true,
+      "background": {
+        "type": "color",
+        "selected_value": "radial-gradient(80% 80% at 101.61% 76.99%, #2D0264 0%, #030023 100%)",
+        "random": false
+      }
+    },
+    "ai_chat": {
+      "show_toolbar_button": false,
+      "context_menu_enabled": false,
+      "autocomplete_provider_enabled": false,
+      "storage_enabled": false,
+      "ntp_input_day_zero_enabled": false
+    },
+    "rewards": {
+      "show_brave_rewards_button_in_location_bar": false
+    },
+    "brave_vpn": {
+      "show_button": false
+    },
+    "wallet": {
+      "show_wallet_icon_on_toolbar": false
+    },
+    "web_discovery_enabled": false,
+    "p3a": {
+      "enabled": false,
+      "notice_acknowledged": true
+    }
+  }
+}
