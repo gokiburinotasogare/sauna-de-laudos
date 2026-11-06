@@ -118,52 +118,6 @@ Passo 'Arquivos' {
     }
 }
 
-Passo 'Wallpaper' {
-    Add-Type -AssemblyName System.Drawing
-    $bmp = New-Object System.Drawing.Bitmap 16, 16
-    [System.Drawing.Graphics]::FromImage($bmp).Clear([System.Drawing.Color]::Black)
-    $bmp.Save("$root\preto.png", [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
-    if (-not ('Sauna.Fundo' -as [type])) {
-        Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-namespace Sauna {
-    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
-    [ComImport, Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IDesktopWallpaper {
-        void SetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitor, [MarshalAs(UnmanagedType.LPWStr)] string path);
-        [return: MarshalAs(UnmanagedType.LPWStr)] string GetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitor);
-        [return: MarshalAs(UnmanagedType.LPWStr)] string GetMonitorDevicePathAt(uint index);
-        uint GetMonitorDevicePathCount();
-        Rect GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitor);
-        void SetBackgroundColor(uint color);
-        uint GetBackgroundColor();
-        void SetPosition(int position);
-    }
-    [ComImport, Guid("C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD")] public class DesktopWallpaper {}
-    public static class Fundo {
-        public static int Aplicar(string principal, string demais) {
-            var w = (IDesktopWallpaper)new DesktopWallpaper();
-            w.SetBackgroundColor(0);
-            w.SetPosition(4);
-            int n = 0;
-            for (uint i = 0; i < w.GetMonitorDevicePathCount(); i++) {
-                string id = w.GetMonitorDevicePathAt(i);
-                Rect r;
-                try { r = w.GetMonitorRECT(id); } catch { continue; }
-                w.SetWallpaper(id, r.Left == 0 && r.Top == 0 ? principal : demais);
-                n++;
-            }
-            return n;
-        }
-    }
-}
-'@
-    }
-    "$([Sauna.Fundo]::Aplicar("$root\wallpaper.jpg", "$root\preto.png")) monitores"
-}
-
 Passo 'Brave' { Instalar 'brave/brave-browser' { param($t) "brave-$t-win32-x64.zip" } $braveDir }
 
 Passo 'Config do Brave' {
@@ -209,6 +163,53 @@ Passo 'Explorer' {
     Stop-Process -Name explorer -Force
     Start-Sleep -Seconds 2
     if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer }
+}
+
+Passo 'Wallpaper' {
+    Start-Sleep -Seconds 3   # depois do restart do Explorer, que reaplica o fundo da TI
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object System.Drawing.Bitmap 16, 16
+    [System.Drawing.Graphics]::FromImage($bmp).Clear([System.Drawing.Color]::Black)
+    $bmp.Save("$root\preto.png", [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+    if (-not ('Sauna.Fundo' -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+namespace Sauna {
+    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+    [ComImport, Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IDesktopWallpaper {
+        void SetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitor, [MarshalAs(UnmanagedType.LPWStr)] string path);
+        [return: MarshalAs(UnmanagedType.LPWStr)] string GetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitor);
+        [return: MarshalAs(UnmanagedType.LPWStr)] string GetMonitorDevicePathAt(uint index);
+        uint GetMonitorDevicePathCount();
+        Rect GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitor);
+        void SetBackgroundColor(uint color);
+        uint GetBackgroundColor();
+        void SetPosition(int position);
+    }
+    [ComImport, Guid("C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD")] public class DesktopWallpaper {}
+    public static class Fundo {
+        public static int Aplicar(string principal, string demais) {
+            var w = (IDesktopWallpaper)new DesktopWallpaper();
+            w.SetBackgroundColor(0);
+            w.SetPosition(4);
+            int n = 0;
+            for (uint i = 0; i < w.GetMonitorDevicePathCount(); i++) {
+                string id = w.GetMonitorDevicePathAt(i);
+                Rect r;
+                try { r = w.GetMonitorRECT(id); } catch { continue; }
+                w.SetWallpaper(id, r.Left == 0 && r.Top == 0 ? principal : demais);
+                n++;
+            }
+            return n;
+        }
+    }
+}
+'@
+    }
+    "$([Sauna.Fundo]::Aplicar("$root\wallpaper.jpg", "$root\preto.png")) monitores"
 }
 
 Passo 'Iniciar' {
