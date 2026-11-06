@@ -51,6 +51,14 @@ function Release([string]$projeto, [scriptblock]$arquivo) {
     }
 }
 
+function Mesclar($base, $novo) {
+    foreach ($p in $novo.PSObject.Properties) {
+        $atual = $base.PSObject.Properties[$p.Name]
+        if ($atual -and $atual.Value -is [pscustomobject] -and $p.Value -is [pscustomobject]) { Mesclar $atual.Value $p.Value }
+        else { $base | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value -Force }
+    }
+}
+
 function Instalar([string]$projeto, [scriptblock]$arquivo, [string]$destino) {
     $rel = Release $projeto $arquivo
     $marca = "$destino\versao.txt"
@@ -79,8 +87,6 @@ Passo 'Barra de tarefas' {
     Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' @{ SearchboxTaskbarMode = 0; BingSearchEnabled = 0 }
     Reg $adv @{ ShowTaskViewButton = 0; ShowCopilotButton = 0; TaskbarMn = 0; TaskbarSd = 0; MMTaskbarEnabled = 0 }
 }
-
-Passo 'Widgets' { Reg $adv @{ TaskbarDa = 0 } }
 
 Passo 'Desafixar' {
     $n = 0
@@ -171,17 +177,26 @@ Passo 'Config do Brave' {
     $lnk.Arguments = $braveArgs
     $lnk.Save()
 
-    if (Test-Path "$dados\Default\Preferences") { return }
-    # initial_preferences so e aplicado no first run, que o --no-first-run desliga
-    New-Item -ItemType Directory -Force $dados | Out-Null
-    [IO.File]::WriteAllText("$dados\Local State", '{"brave":{"p3a":{"enabled":false,"notice_acknowledged":true}}}')
-    Start-Process "$braveDir\brave.exe" "$($braveArgs.Replace('--no-first-run ', '')) about:blank" -WindowStyle Hidden
-    $t = [Diagnostics.Stopwatch]::StartNew()
-    while (-not (Test-Path "$dados\Default\Preferences") -and $t.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 300 }
-    Start-Sleep -Seconds 2
+    $arq = "$dados\Default\Preferences"
+    $info = 'perfil existente'
+    if (-not (Test-Path $arq)) {
+        New-Item -ItemType Directory -Force $dados | Out-Null
+        [IO.File]::WriteAllText("$dados\Local State", '{"brave":{"p3a":{"enabled":false,"notice_acknowledged":true}}}')
+        Start-Process "$braveDir\brave.exe" "$($braveArgs.Replace('--no-first-run ', '')) about:blank" -WindowStyle Hidden
+        $t = [Diagnostics.Stopwatch]::StartNew()
+        while (-not (Test-Path $arq) -and $t.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 300 }
+        Start-Sleep -Seconds 3
+        if (-not (Test-Path $arq)) { Parar $braveDir; throw 'perfil nao criado' }
+        $info = 'perfil novo'
+    }
+    # o initial_preferences nao e confiavel; escreve as prefs direto no perfil, com o Brave fechado
     Parar $braveDir
-    if (-not (Test-Path "$dados\Default\Preferences")) { throw 'perfil nao criado' }
-    'perfil novo'
+    $base = [IO.File]::ReadAllText($arq) | ConvertFrom-Json
+    $novo = $prefs | ConvertFrom-Json
+    $novo.PSObject.Properties.Remove('distribution')
+    Mesclar $base $novo
+    [IO.File]::WriteAllText($arq, ($base | ConvertTo-Json -Depth 100 -Compress))
+    "$info, prefs aplicadas"
 }
 
 Passo 'AutoHotkey' {
