@@ -160,9 +160,14 @@ Passo 'AutoHotkey' {
 }
 
 Passo 'Explorer' {
-    Stop-Process -Name explorer -Force
+    # so o Explorer desta sessao; com outras pessoas logadas, matar todos da acesso negado
+    $sessao = (Get-Process -Id $PID).SessionId
+    $meu = { Get-Process explorer -ErrorAction SilentlyContinue | Where-Object SessionId -eq $sessao }
+    & $meu | Stop-Process -Force
+    $t = [Diagnostics.Stopwatch]::StartNew()
+    while (-not (& $meu) -and $t.Elapsed.TotalSeconds -lt 8) { Start-Sleep -Milliseconds 500 }
+    if (-not (& $meu)) { Start-Process explorer }
     Start-Sleep -Seconds 2
-    if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer }
 }
 
 Passo 'Wallpaper' {
