@@ -290,7 +290,8 @@ CampoAtual(hwnd) {
     info := Buffer(6200, 0)
     if !JabCall("getAccessibleContextInfo", "Int", vm, "Int64", ac, "Ptr", info)
         || !NumGet(info, 6180, "Int")
-        || !InStr(StrGet(info.Ptr + 5632, 256, "UTF-16"), "editable") {
+        || !InStr(StrGet(info.Ptr + 5632, 256, "UTF-16"), "editable")
+        || InStr(StrGet(info.Ptr + 4608, 256, "UTF-16"), "password") {
         Soltar(vm, ac)
         return ""
     }
