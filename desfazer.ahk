@@ -9,7 +9,7 @@ global Jab := Map(), JabEstado := 0, Campos := [], JanelasAgfa := Map()
 
 PALAVRAS  := 1       ; palavras digitadas por passo de desfazer
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
-TECLADO   := 2000    ; texto que muda sem tecla nesse intervalo veio de fora (outro laudo, ditado)
+TECLADO   := 2000    ; texto que muda sem tecla nesse intervalo veio de fora (ditado ou outro laudo)
 MAXPASSOS := 1000
 SEPARA    := "\s.,;:!?()"   ; o que termina uma palavra
 
@@ -79,17 +79,14 @@ Observar(c) {
 }
 
 ; registra o texto lido; antes, fecha o passo pendente se a nova mudanca nao continua a anterior
-; (passou de digitar para apagar, ou o cursor foi para outro lugar)
+; (passou de digitar para apagar, mudou de lugar, ou alternou entre teclado e ditado)
 Ver(c, t, checarTeclado) {
     if t == c.visto
         return
-    if c.hist.Length {
-        if checarTeclado && A_TimeIdleKeyboard > TECLADO
-            c.externo := true
-        else if !c.externo && c.visto !== c.hist[c.idx] && !Continua(c.hist[c.idx], c.visto, t)
-            Registrar(c)
-    }
-    c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount
+    ext := checarTeclado ? A_TimeIdleKeyboard > TECLADO : c.externo
+    if c.hist.Length && c.visto !== c.hist[c.idx] && (ext != c.externo || !Continua(c.hist[c.idx], c.visto, t))
+        Registrar(c)
+    c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount, c.externo := ext
 }
 
 Continua(base, a, b) {
@@ -103,16 +100,26 @@ Zerar(c) {
     c.hist := [c.visto], c.idx := 1, c.externo := false
 }
 
+; texto que chegou sem teclado so entra no historico se for uma insercao (um bloco ditado);
+; se apagou ou trocou algo, pode ser outro laudo carregando, e o historico recomeca
 Registrar(c) {
-    if c.externo || Trocou(c.hist[c.idx], c.visto)
+    base := c.hist[c.idx]
+    if Trocou(base, c.visto)
         return Zerar(c)
+    if c.externo {
+        d := Diff(base, c.visto)
+        if StrLen(base) - d.p - d.s
+            return Zerar(c)
+        novos := [c.visto]
+    } else
+        novos := Etapas(base, c.visto)
     while c.hist.Length > c.idx
         c.hist.Pop()
-    for t in Etapas(c.hist[c.idx], c.visto)
+    for t in novos
         c.hist.Push(t)
     if c.hist.Length > MAXPASSOS
         c.hist.RemoveAt(1, c.hist.Length - MAXPASSOS)
-    c.idx := c.hist.Length
+    c.idx := c.hist.Length, c.externo := false
 }
 
 ; texto digitado de uma vez vira um passo a cada PALAVRAS palavras, como no Word
