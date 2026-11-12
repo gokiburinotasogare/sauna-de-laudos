@@ -38,12 +38,12 @@ LigarBridge() {
     try if RegExMatch(FileRead(arq), "m)^[ \t]*assistive_technologies[ \t]*=.*AccessBridge")
         return
     if MsgBox("Para o Ctrl+Z funcionar no Agfa, preciso ligar um recurso de acessibilidade do Java no seu usuário.`n`n"
-            . "Não precisa de administrador e não muda nada no Agfa. Isso só é feito uma vez.`n`nLigar agora?",
+            . "Não precisa de administrador, vale só para o seu usuário do Windows e não muda nada no Agfa. Isso só é feito uma vez.`n`nLigar agora?",
             "Desfazer no Agfa", "YesNo Icon? 262144") != "Yes"
         ExitApp
     FileAppend "`nassistive_technologies=com.sun.java.accessibility.AccessBridge`nscreen_magnifier_present=true`n", arq, "UTF-8-RAW"
     if WinExist("ahk_exe javaw.exe")
-        MsgBox "Pronto. Agora feche o Agfa por completo e abra de novo.", "Desfazer no Agfa", 262144
+        MsgBox "Pronto. Agora reinicie o Agfa.", "Desfazer no Agfa", 262144
 }
 
 AgfaAtivo() {
@@ -181,7 +181,7 @@ DzPasso(dir, tecla) {
     if !IsObject(c) {
         Send tecla
         if hwnd && JabEstado = 1 && A_TickCount - JabDesde > 3000 && !JabCall("isJavaWindow", "Ptr", hwnd)
-            Dica("O Ctrl+Z vai funcionar depois que você fechar e abrir o Agfa.", 4000)
+            Dica("O Ctrl+Z vai funcionar depois que você reiniciar o Agfa.", 4000)
         return
     }
     try {
