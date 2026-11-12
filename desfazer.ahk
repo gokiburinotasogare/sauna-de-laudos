@@ -2,14 +2,13 @@
 #SingleInstance Force
 Persistent
 
-; Ctrl+Z / Ctrl+Shift+Z no editor de laudos do Agfa (IMPAX Agility).
-; O editor e Swing: o texto e lido e editado pela Java Access Bridge.
+; Ctrl+Z / Ctrl+Shift+Z no editor de laudos do Agfa (IMPAX Agility), via Java Access Bridge.
 
 global Jab := Map(), JabEstado := 0, JabDesde := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0
 
 PALAVRAS  := 1       ; palavras digitadas por passo de desfazer
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
-TECLADO   := 2000    ; texto que muda sem tecla nesse intervalo veio de fora (ditado ou outro laudo)
+TECLADO   := 2000    ; ms sem tecla para uma mudanca contar como externa
 MAXPASSOS := 1000
 SEPARA    := "\s.,;:!?()"   ; o que termina uma palavra
 
@@ -32,13 +31,12 @@ $^+z:: DzPasso(1, "^+z")
 }
 #HotIf
 
-; a bridge so funciona com ela ligada no perfil do usuario antes do Agfa abrir
 LigarBridge() {
     arq := EnvGet("USERPROFILE") "\.accessibility.properties"
     try if RegExMatch(FileRead(arq), "m)^[ \t]*assistive_technologies[ \t]*=.*AccessBridge")
         return
-    if MsgBox("Para o Ctrl+Z funcionar no Agfa, preciso ligar um recurso de acessibilidade do Java no seu usuário.`n`n"
-            . "Não precisa de administrador, vale só para o seu usuário do Windows e não muda nada no Agfa. Isso só é feito uma vez.`n`nLigar agora?",
+    if MsgBox("Para o Ctrl+Z funcionar no Agfa, é necessário ligar um recurso de acessibilidade do seu usuário.`n`n"
+            . "Vale só para seu usuário do Windows e não muda nada no Agfa.`n`nLigar agora?",
             "Desfazer no Agfa", "YesNo Icon? 262144") != "Yes"
         ExitApp
     FileAppend "`nassistive_technologies=com.sun.java.accessibility.AccessBridge`nscreen_magnifier_present=true`n", arq, "UTF-8-RAW"
@@ -83,12 +81,6 @@ Observar(c) {
         Registrar(c)
 }
 
-; Classifica cada mudanca lida e decide se ela fecha o passo pendente.
-; Vem de fora (ditado, ou o Agfa trocando de laudo) quando:
-;  - nenhuma tecla foi usada nos ultimos TECLADO ms
-;  - trocou texto (apagou e inseriu) e: foram 10+ caracteres de cada lado sem Ctrl+V, ou o cursor
-;    nao esta onde a troca aconteceu (quem digita deixa o cursor no fim do que digitou)
-; Colagens, selecoes apagadas e trechos grandes viram um passo inteiro, sem dividir por palavra.
 Ver(c, t, caret, leitura) {
     if t == c.visto
         return
@@ -111,7 +103,6 @@ Ver(c, t, caret, leitura) {
         Registrar(c)
 }
 
-; a nova mudanca segue a pendente: mesmo tipo (digitar ou apagar) e encostada nela
 Continua(base, a, d, tira, poe) {
     if (StrLen(a) >= StrLen(base)) != (poe >= tira)
         return false
@@ -123,8 +114,6 @@ Zerar(c) {
     c.hist := [c.visto], c.idx := 1, c.externo := c.bloco := c.colou := false
 }
 
-; texto que chegou sem teclado so entra no historico se for uma insercao (um bloco ditado);
-; se apagou ou trocou algo, pode ser outro laudo carregando, e o historico recomeca
 Registrar(c) {
     base := c.hist[c.idx]
     if !c.colou && Trocou(base, c.visto)
@@ -145,7 +134,6 @@ Registrar(c) {
     c.idx := c.hist.Length, c.externo := c.bloco := c.colou := false
 }
 
-; texto digitado de uma vez vira um passo a cada PALAVRAS palavras, como no Word
 Etapas(base, novo) {
     d := Diff(base, novo)
     if StrLen(base) - d.p - d.s
@@ -162,7 +150,6 @@ Etapas(base, novo) {
     return etapas
 }
 
-; outro laudo no mesmo campo: texto grande surgindo num campo vazio, ou quase nada em comum
 Trocou(a, b) {
     la := StrLen(Trim(a, " `t`r`n")), lb := StrLen(Trim(b, " `t`r`n"))
     if la < 10
@@ -206,7 +193,6 @@ DzPasso(dir, tecla) {
         Dica("Desfazer falhou: " e.Message, 4000)
 }
 
-; troca so o trecho que difere; confere a selecao antes e o texto depois, com uma nova tentativa
 Aplicar(c, alvo) {
     clip := ""
     try {
@@ -255,7 +241,6 @@ Posicionar(c, p, n) {
     return false
 }
 
-; prefixo e sufixo em comum, por busca binaria
 Diff(a, b) {
     la := StrLen(a), lb := StrLen(b), m := Min(la, lb)
     lo := 0, hi := m
@@ -344,7 +329,6 @@ TextoInfo(c) {
     return {n: NumGet(b, 0, "Int"), caret: NumGet(b, 4, "Int")}
 }
 
-; o fim do intervalo e inclusivo e cada chamada devolve no maximo ~10 mil caracteres
 LerTexto(c, n) {
     s := "", ini := 0
     while ini < n {
@@ -364,7 +348,6 @@ LerTudo(c, &caret := 0) {
     return LerTexto(c, i.n)
 }
 
-; texto marcado para ficar fora do historico do Win+V
 Copiar(t) {
     t := StrReplace(t, "`n", "`r`n")
     Loop 10 {
