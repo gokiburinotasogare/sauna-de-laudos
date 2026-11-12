@@ -22,10 +22,12 @@ LigarBridge()
 InstallKeybdHook
 SetTimer DzVigiar, 250
 
+#MaxThreadsBuffer True
 #HotIf AgfaAtivo()
 $^z:: DzPasso(-1, "^z")
 $^+z:: DzPasso(1, "^+z")
-~^v:: {
+~^v::
+~+Ins:: {
     global UltimoColar := A_TickCount
 }
 #HotIf
@@ -73,7 +75,7 @@ Observar(c) {
     c.ciclo++
     if i.n != c.n || !Mod(c.ciclo, 3) || !c.hist.Length {
         c.n := i.n
-        Ver(c, LerTexto(c, i.n), true)
+        Ver(c, LerTexto(c, i.n), i.caret, true)
     }
     if !c.hist.Length
         Zerar(c)
@@ -81,40 +83,51 @@ Observar(c) {
         Registrar(c)
 }
 
-; registra o texto lido; antes, fecha o passo pendente se a nova mudanca nao continua a anterior
-; (passou de digitar para apagar, mudou de lugar, ou alternou entre teclado e ditado)
-Ver(c, t, checarTeclado) {
+; Classifica cada mudanca lida e decide se ela fecha o passo pendente.
+; Vem de fora (ditado, ou o Agfa trocando de laudo) quando:
+;  - nenhuma tecla foi usada nos ultimos TECLADO ms
+;  - trocou texto (apagou e inseriu) e: foram 10+ caracteres de cada lado sem Ctrl+V, ou o cursor
+;    nao esta onde a troca aconteceu (quem digita deixa o cursor no fim do que digitou)
+; Colagens, selecoes apagadas e trechos grandes viram um passo inteiro, sem dividir por palavra.
+Ver(c, t, caret, leitura) {
     if t == c.visto
         return
-    ext := checarTeclado ? A_TimeIdleKeyboard > TECLADO || TrocaSemColar(c.visto, t) : c.externo
-    if c.hist.Length && c.visto !== c.hist[c.idx] && (ext != c.externo || !Continua(c.hist[c.idx], c.visto, t))
+    d := Diff(c.visto, t)
+    tira := StrLen(c.visto) - d.p - d.s, poe := StrLen(t) - d.p - d.s
+    colou := A_TickCount - UltimoColar <= TECLADO
+    if colou
+        ext := false
+    else if leitura && A_TimeIdleKeyboard > TECLADO
+        ext := true
+    else
+        ext := tira && poe && (tira >= 10 && poe >= 10 || caret < d.p - 3 || caret > d.p + poe + 3)
+    bloco := !ext && (colou || poe >= 8 || tira >= 10 || tira >= 2 && poe >= 1)
+
+    if c.hist.Length && c.visto !== c.hist[c.idx]
+        && (ext != c.externo || bloco || c.bloco || !Continua(c.hist[c.idx], c.visto, d, tira, poe))
         Registrar(c)
-    c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount, c.externo := ext
+    c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount, c.externo := ext, c.bloco := bloco, c.colou := colou
+    if bloco && c.hist.Length
+        Registrar(c)
 }
 
-; num intervalo de leitura ninguem digita 10 letras por cima de 10 outras; sem Ctrl+V, foi o Agfa
-; trocando o texto (outro laudo com o mesmo modelo, aberto enquanto alguma tecla era usada)
-TrocaSemColar(a, b) {
-    d := Diff(a, b)
-    return StrLen(a) - d.p - d.s >= 10 && StrLen(b) - d.p - d.s >= 10 && A_TickCount - UltimoColar > TECLADO
-}
-
-Continua(base, a, b) {
-    if (StrLen(a) >= StrLen(base)) != (StrLen(b) >= StrLen(a))
+; a nova mudanca segue a pendente: mesmo tipo (digitar ou apagar) e encostada nela
+Continua(base, a, d, tira, poe) {
+    if (StrLen(a) >= StrLen(base)) != (poe >= tira)
         return false
-    d1 := Diff(base, a), d2 := Diff(a, b)
-    return d2.p <= StrLen(a) - d1.s && StrLen(a) - d2.s >= d1.p
+    d1 := Diff(base, a)
+    return d.p <= StrLen(a) - d1.s && d.p + tira >= d1.p
 }
 
 Zerar(c) {
-    c.hist := [c.visto], c.idx := 1, c.externo := false
+    c.hist := [c.visto], c.idx := 1, c.externo := c.bloco := c.colou := false
 }
 
 ; texto que chegou sem teclado so entra no historico se for uma insercao (um bloco ditado);
 ; se apagou ou trocou algo, pode ser outro laudo carregando, e o historico recomeca
 Registrar(c) {
     base := c.hist[c.idx]
-    if Trocou(base, c.visto)
+    if !c.colou && Trocou(base, c.visto)
         return Zerar(c)
     if c.externo {
         d := Diff(base, c.visto)
@@ -122,14 +135,14 @@ Registrar(c) {
             return Zerar(c)
         novos := [c.visto]
     } else
-        novos := Etapas(base, c.visto)
+        novos := c.bloco ? [c.visto] : Etapas(base, c.visto)
     while c.hist.Length > c.idx
         c.hist.Pop()
     for t in novos
         c.hist.Push(t)
     if c.hist.Length > MAXPASSOS
         c.hist.RemoveAt(1, c.hist.Length - MAXPASSOS)
-    c.idx := c.hist.Length, c.externo := false
+    c.idx := c.hist.Length, c.externo := c.bloco := c.colou := false
 }
 
 ; texto digitado de uma vez vira um passo a cada PALAVRAS palavras, como no Word
@@ -169,7 +182,8 @@ DzPasso(dir, tecla) {
         return
     }
     try {
-        Ver(c, LerTudo(c), false)
+        t := LerTudo(c, &caret)
+        Ver(c, t, caret, false)
         if !c.hist.Length
             Zerar(c)
         else if c.visto !== c.hist[c.idx]
@@ -210,8 +224,8 @@ Aplicar(c, alvo) {
                 Copiar(poe)
                 Send "^v"
             }
-            Loop 15 {
-                Sleep 80
+            Loop 40 {
+                Sleep 30
                 if LerTudo(c) == alvo
                     return true
             }
@@ -224,16 +238,16 @@ Aplicar(c, alvo) {
 }
 
 Posicionar(c, p, n) {
-    Loop 2 {
-        if n
-            JabCall("selectTextRange", "Int", c.vm, "Int64", c.ac, "Int", p, "Int", p + n)
-        else
-            JabCall("setCaretPosition", "Int", c.vm, "Int64", c.ac, "Int", p)
-        Sleep 40
-        b := Buffer(2056, 0)
+    if n
+        JabCall("selectTextRange", "Int", c.vm, "Int64", c.ac, "Int", p, "Int", p + n)
+    else
+        JabCall("setCaretPosition", "Int", c.vm, "Int64", c.ac, "Int", p)
+    b := Buffer(2056, 0)
+    Loop 5 {
         if JabCall("getAccessibleTextSelectionInfo", "Int", c.vm, "Int64", c.ac, "Ptr", b)
             && NumGet(b, 0, "Int") = p && NumGet(b, 4, "Int") = p + n
             return true
+        Sleep 20
     }
     return false
 }
@@ -280,7 +294,7 @@ CampoAtual(hwnd) {
         Soltar(vm, ac)
         return ""
     }
-    c := {vm: vm, ac: ac, hist: [], idx: 0, n: -1, ciclo: 0, visto: "", mudou: 0, externo: false}
+    c := {vm: vm, ac: ac, hist: [], idx: 0, n: -1, ciclo: 0, visto: "", mudou: 0, externo: false, bloco: false, colou: false}
     Campos.InsertAt(1, c)
     while Campos.Length > 6 {
         v := Campos.Pop()
@@ -340,7 +354,10 @@ LerTexto(c, n) {
     return s
 }
 
-LerTudo(c) => LerTexto(c, TextoInfo(c).n)
+LerTudo(c, &caret := 0) {
+    i := TextoInfo(c), caret := i.caret
+    return LerTexto(c, i.n)
+}
 
 ; texto marcado para ficar fora do historico do Win+V
 Copiar(t) {
