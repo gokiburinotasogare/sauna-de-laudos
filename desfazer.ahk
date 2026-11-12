@@ -7,9 +7,11 @@ Persistent
 
 global Jab := Map(), JabEstado := 0, Campos := [], JanelasAgfa := Map()
 
+PALAVRAS  := 1       ; palavras digitadas por passo de desfazer
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
 TECLADO   := 2000    ; texto que muda sem tecla nesse intervalo veio de fora (outro laudo, ditado)
-MAXPASSOS := 300
+MAXPASSOS := 1000
+SEPARA    := "\s.,;:!?()"   ; o que termina uma palavra
 
 if A_PtrSize != 8 {
     MsgBox "Abra com o AutoHotkey64.exe: o Java do Agfa e 64 bits.", "Desfazer"
@@ -18,7 +20,7 @@ if A_PtrSize != 8 {
 A_IconTip := "Desfazer no Agfa (Ctrl+Z / Ctrl+Shift+Z)"
 LigarBridge()
 InstallKeybdHook
-SetTimer DzVigiar, 400
+SetTimer DzVigiar, 250
 
 #HotIf AgfaAtivo()
 $^z:: DzPasso(-1, "^z")
@@ -67,18 +69,34 @@ Observar(c) {
     i := TextoInfo(c)
     c.ciclo++
     if i.n != c.n || !Mod(c.ciclo, 3) || !c.hist.Length {
-        t := LerTexto(c, i.n)
         c.n := i.n
-        if t !== c.visto {
-            if c.hist.Length && A_TimeIdleKeyboard > TECLADO
-                c.externo := true
-            c.visto := t, c.mudou := A_TickCount
-        }
+        Ver(c, LerTexto(c, i.n), true)
     }
     if !c.hist.Length
         Zerar(c)
     else if c.visto !== c.hist[c.idx] && A_TickCount - c.mudou >= PAUSA
         Registrar(c)
+}
+
+; registra o texto lido; antes, fecha o passo pendente se a nova mudanca nao continua a anterior
+; (passou de digitar para apagar, ou o cursor foi para outro lugar)
+Ver(c, t, checarTeclado) {
+    if t == c.visto
+        return
+    if c.hist.Length {
+        if checarTeclado && A_TimeIdleKeyboard > TECLADO
+            c.externo := true
+        else if !c.externo && c.visto !== c.hist[c.idx] && !Continua(c.hist[c.idx], c.visto, t)
+            Registrar(c)
+    }
+    c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount
+}
+
+Continua(base, a, b) {
+    if (StrLen(a) >= StrLen(base)) != (StrLen(b) >= StrLen(a))
+        return false
+    d1 := Diff(base, a), d2 := Diff(a, b)
+    return d2.p <= StrLen(a) - d1.s && StrLen(a) - d2.s >= d1.p
 }
 
 Zerar(c) {
@@ -90,10 +108,28 @@ Registrar(c) {
         return Zerar(c)
     while c.hist.Length > c.idx
         c.hist.Pop()
-    c.hist.Push(c.visto)
+    for t in Etapas(c.hist[c.idx], c.visto)
+        c.hist.Push(t)
     if c.hist.Length > MAXPASSOS
-        c.hist.RemoveAt(1)
+        c.hist.RemoveAt(1, c.hist.Length - MAXPASSOS)
     c.idx := c.hist.Length
+}
+
+; texto digitado de uma vez vira um passo a cada PALAVRAS palavras, como no Word
+Etapas(base, novo) {
+    d := Diff(base, novo)
+    if StrLen(base) - d.p - d.s
+        return [novo]
+    ins := SubStr(novo, d.p + 1, StrLen(novo) - d.p - d.s)
+    antes := SubStr(base, 1, d.p), depois := SubStr(base, d.p + 1)
+    etapas := [], pos := 1, n := 0
+    while RegExMatch(ins, "[^" SEPARA "][" SEPARA "]+", &m, pos) {
+        pos := m.Pos + m.Len
+        if ++n >= PALAVRAS && pos <= StrLen(ins)
+            etapas.Push(antes SubStr(ins, 1, pos - 1) depois), n := 0
+    }
+    etapas.Push(novo)
+    return etapas
 }
 
 ; outro laudo no mesmo campo: texto grande surgindo num campo vazio, ou quase nada em comum
@@ -116,9 +152,7 @@ DzPasso(dir, tecla) {
         return
     }
     try {
-        t := LerTudo(c)
-        if t !== c.visto
-            c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount
+        Ver(c, LerTudo(c), false)
         if !c.hist.Length
             Zerar(c)
         else if c.visto !== c.hist[c.idx]
