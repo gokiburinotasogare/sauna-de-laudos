@@ -366,7 +366,7 @@ Passo 'Ctrl+Z no Agfa' {
     Add-Content -LiteralPath $props -Value '', 'assistive_technologies=com.sun.java.accessibility.AccessBridge', 'screen_magnifier_present=true' -Encoding ASCII
     Det 'Java Access Bridge ligada so para este usuario'
     if (Get-Process javaw -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*\AGFA\*' }) {
-        Aviso 'o Agfa esta aberto: feche e abra para o Ctrl+Z funcionar'
+        Aviso 'o Agfa esta aberto: reinicie o Agfa para o Ctrl+Z funcionar'
     }
 }
 
