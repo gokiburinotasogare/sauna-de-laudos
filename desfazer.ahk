@@ -181,13 +181,12 @@ DzPasso(dir, tecla) {
 
         alvoIdx := c.idx + dir
         if alvoIdx < 1 || alvoIdx > c.hist.Length
-            return Dica(dir < 0 ? "Nada para desfazer" : "Nada para refazer")
+            return
         ok := Aplicar(c, c.hist[alvoIdx])
         c.visto := LerTudo(c), c.n := StrLen(c.visto), c.mudou := A_TickCount
-        if ok {
+        if ok
             c.idx := alvoIdx
-            Dica((dir < 0 ? "Desfeito " : "Refeito ") c.idx "/" c.hist.Length)
-        } else
+        else
             Dica("O texto não voltou exatamente como era. Confira.", 4000)
     } catch as e
         Dica("Desfazer falhou: " e.Message, 4000)
