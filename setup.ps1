@@ -17,7 +17,7 @@ $estado    = @{ ok = 0; avisos = 0; falhas = 0; aviso = $false; det = New-Object
 $relogio   = [Diagnostics.Stopwatch]::StartNew()
 $snapDir   = "$root\snapshot"
 $snapArq   = "$snapDir\snapshot.json"
-$snap      = @{ inicio = $null; historico = $null; valores = @{}; chaves = @{}; criadas = @(); pastas = @{}; arquivos = @{}; wallpaper = $null }
+$snap      = @{ inicio = $null; historico = $null; valores = @{}; chaves = @{}; criadas = @(); pastas = @{}; arquivos = @{} }
 
 # ---------------------------------------------------------------- saida
 
@@ -71,7 +71,7 @@ function Passo([string]$nome, [scriptblock]$acao) {
 function CarregarSnapshot {
     if (-not (Test-Path $snapArq)) { return $false }
     $s = [IO.File]::ReadAllText($snapArq) | ConvertFrom-Json
-    $snap.inicio = if ($s.inicio -is [datetime]) { $s.inicio.ToString('o') } else { $s.inicio }; $snap.historico = $s.historico; $snap.wallpaper = $s.wallpaper
+    $snap.inicio = if ($s.inicio -is [datetime]) { $s.inicio.ToString('o') } else { $s.inicio }; $snap.historico = $s.historico
     $snap.criadas = @($s.criadas | Where-Object { $_ })
     foreach ($v in @($s.valores))  { if ($v) { $snap.valores[$v.id] = $v } }
     foreach ($c in @($s.chaves))   { if ($c) { $snap.chaves[$c.chave] = $c } }
@@ -83,7 +83,7 @@ function CarregarSnapshot {
 function SalvarSnapshot {
     if (-not (Test-Path $snapDir)) { return }
     $obj = [pscustomobject]@{
-        inicio = $snap.inicio; historico = $snap.historico; wallpaper = $snap.wallpaper; criadas = @($snap.criadas)
+        inicio = $snap.inicio; historico = $snap.historico; criadas = @($snap.criadas)
         valores = @($snap.valores.Values); chaves = @($snap.chaves.Values); pastas = @($snap.pastas.Values); arquivos = @($snap.arquivos.Values)
     }
     [IO.File]::WriteAllText($snapArq, ($obj | ConvertTo-Json -Depth 10))
@@ -139,10 +139,6 @@ function Reg([string]$chave, [hashtable]$valores, [string]$tipo = 'DWord') {
     foreach ($n in $valores.Keys) { AnotarValor $chave $n }
     if (-not (Test-Path -LiteralPath $chave)) { New-Item $chave -Force | Out-Null }
     foreach ($n in $valores.Keys) { New-ItemProperty -LiteralPath $chave -Name $n -Value $valores[$n] -PropertyType $tipo -Force | Out-Null }
-}
-
-function CarregarTela {
-    if (-not ('SaunaTela.Tela' -as [type])) { Add-Type -TypeDefinition ([IO.File]::ReadAllText("$root\tela.cs")) }
 }
 
 function Rodando([string]$pasta) { @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($pasta, 'OrdinalIgnoreCase') }) }
@@ -238,7 +234,6 @@ Passo 'Estado original' {
     AnotarChave 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband'
     AnotarChave 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU'
     AnotarArquivo 'Brave.lnk' $atalho
-    foreach ($n in 'Wallpaper', 'WallpaperStyle', 'TileWallpaper') { AnotarValor 'HKCU:\Control Panel\Desktop' $n }
     Det 'recentes, barra fixada, historico do Win+R e do PowerShell'
     Det "o cleanup devolve tudo como estava; guardado em $snapDir"
     'novo'
@@ -296,7 +291,7 @@ Passo 'Iniciar e dicas' {
 Secao 'arquivos'
 
 Passo 'Download do repo' {
-    $lista = 'main.ahk', 'cleanup.ps1', 'tela.cs', 'brave/initial_preferences', 'assets/wallpaper.jpg'
+    $lista = 'main.ahk', 'cleanup.ps1', 'brave/initial_preferences'
     foreach ($f in $lista) {
         $dest = "$root\$(Split-Path $f -Leaf)"
         Invoke-WebRequest "$repo/$f" -OutFile $dest -UseBasicParsing -Headers $ua
@@ -376,31 +371,6 @@ Passo 'Explorer' {
     if (& $meu) { Det ('voltou sozinho em {0:N1} s' -f $t.Elapsed.TotalSeconds) }
     else { Start-Process explorer; Det 'nao voltou sozinho, abri de novo' }
     Start-Sleep -Seconds 2
-}
-
-Passo 'Wallpaper' {
-    Start-Sleep -Seconds 3   # depois do restart do Explorer, que reaplica o fundo da TI
-    Add-Type -AssemblyName System.Drawing
-    $bmp = New-Object System.Drawing.Bitmap 16, 16
-    [System.Drawing.Graphics]::FromImage($bmp).Clear([System.Drawing.Color]::Black)
-    $bmp.Save("$root\preto.png", [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
-    CarregarTela
-    if (-not $snap.wallpaper) {
-        $telas = @([SaunaTela.Tela]::Ler() | ForEach-Object { $x = $_ -split "`t", 2; [pscustomobject]@{ id = $x[0]; caminho = $x[1] } })
-        $snap.wallpaper = [pscustomobject]@{ posicao = [SaunaTela.Tela]::Posicao(); cor = [SaunaTela.Tela]::Cor(); telas = $telas }
-        Det "fundo original anotado ($($telas.Count) telas)"
-    }
-    $linhas = [SaunaTela.Tela]::Aplicar("$root\wallpaper.jpg", "$root\preto.png")
-    foreach ($l in $linhas) { if ($l -match 'NAO PEGOU') { Aviso $l } else { Det $l } }
-
-    foreach ($h in 'HKCU', 'HKLM') {
-        $pol = (Get-ItemProperty "${h}:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name Wallpaper -ErrorAction SilentlyContinue).Wallpaper
-        if ($pol) { Aviso "a TI forca um fundo por politica ($h): $pol - ele pode voltar sozinho" }
-        $trava = (Get-ItemProperty "${h}:\Software\Microsoft\Windows\CurrentVersion\Policies\ActiveDesktop" -Name NoChangingWallPaper -ErrorAction SilentlyContinue).NoChangingWallPaper
-        if ($trava) { Aviso "politica da TI bloqueia trocar o fundo ($h)" }
-    }
-    "$($linhas.Count) telas"
 }
 
 Passo 'Abrir' {

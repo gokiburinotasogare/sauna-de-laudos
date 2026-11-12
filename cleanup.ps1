@@ -2,7 +2,6 @@ $ErrorActionPreference = 'SilentlyContinue'
 $root    = "$env:LOCALAPPDATA\Ferramentas"
 $snapDir = "$root\snapshot"
 $snapArq = "$snapDir\snapshot.json"
-$themes  = "$env:APPDATA\Microsoft\Windows\Themes"
 $hist    = "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
 $rastro  = 'sauna-de-laudos|saunadelaudos|invertexto'
 
@@ -112,32 +111,14 @@ if ($snap) {
     Clear-RecycleBin -Force
 }
 
-# 9. papel de parede: limpa o cache com a nossa imagem e devolve o original
-Remove-Item -Recurse -Force -Path "$themes\Transcoded_*", "$themes\CachedFiles\*"
-$restaurou = $false
-if ($snap -and $snap.wallpaper -and (Test-Path "$root\tela.cs")) {
-    try {
-        if (-not ('SaunaTela.Tela' -as [type])) { Add-Type -TypeDefinition ([IO.File]::ReadAllText("$root\tela.cs")) }
-        $t = @($snap.wallpaper.telas)
-        $n = [SaunaTela.Tela]::Restaurar([string[]]@($t.id), [string[]]@($t | ForEach-Object { [string]$_.caminho }), [int]$snap.wallpaper.posicao, [uint32]$snap.wallpaper.cor)
-        $restaurou = $n -gt 0
-    } catch {}
-}
-if (-not $restaurou) {
-    try {
-        Add-Type -Namespace Sauna -Name Spi -MemberDefinition '[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int SystemParametersInfo(int a, int b, string c, int d);'
-        [Sauna.Spi]::SystemParametersInfo(0x14, 0, "$env:WINDIR\Web\Wallpaper\Windows\img0.jpg", 3) | Out-Null
-    } catch {}
-}
-
-# 10. area de transferencia (o Windows nao deixa apagar item por item)
+# 9. area de transferencia (o Windows nao deixa apagar item por item)
 try {
     $clip = [Windows.ApplicationModel.DataTransfer.Clipboard, Windows.ApplicationModel.DataTransfer, ContentType = WindowsRuntime]
     $clip::ClearHistory() | Out-Null
     $clip::Clear()
 } catch {}
 
-# 11. some com a pasta inteira (Brave, AHK, downloads, snapshot)
+# 10. some com a pasta inteira (Brave, AHK, downloads, snapshot)
 if ($env:LOCALAPPDATA -and (Split-Path $root) -eq $env:LOCALAPPDATA) {
     for ($i = 0; $i -lt 10 -and (Test-Path $root); $i++) {
         Remove-Item $root -Recurse -Force
