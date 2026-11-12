@@ -291,7 +291,7 @@ Passo 'Iniciar e dicas' {
 Secao 'arquivos'
 
 Passo 'Download do repo' {
-    $lista = 'main.ahk', 'cleanup.ps1', 'brave/initial_preferences'
+    $lista = 'main.ahk', 'desfazer.ahk', 'cleanup.ps1', 'brave/initial_preferences'
     foreach ($f in $lista) {
         $dest = "$root\$(Split-Path $f -Leaf)"
         Invoke-WebRequest "$repo/$f" -OutFile $dest -UseBasicParsing -Headers $ua
@@ -355,6 +355,20 @@ Passo 'AutoHotkey' {
     $r
 }
 
+Passo 'Ctrl+Z no Agfa' {
+    $props = "$env:USERPROFILE\.accessibility.properties"
+    AnotarArquivo 'accessibility.properties' $props
+    if ((Test-Path $props) -and (Select-String -LiteralPath $props -Pattern '^\s*assistive_technologies\s*=.*AccessBridge' -Quiet)) {
+        Det 'Java Access Bridge ja estava ligada'
+        return
+    }
+    Add-Content -LiteralPath $props -Value '', 'assistive_technologies=com.sun.java.accessibility.AccessBridge', 'screen_magnifier_present=true' -Encoding ASCII
+    Det 'Java Access Bridge ligada so para este usuario'
+    if (Get-Process javaw -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*\AGFA\*' }) {
+        Aviso 'o Agfa esta aberto: feche e abra para o Ctrl+Z funcionar'
+    }
+}
+
 # ---------------------------------------------------------------- aplicar
 
 Secao 'aplicar'
@@ -397,6 +411,7 @@ $atalhos = @(
     @('Win+Shift+C', 'abre o Claude'),
     @('Win+Shift+T', 'janela sempre no topo'),
     @('Lateral mouse', 'segura / solta o clique esquerdo'),
+    @('Ctrl+Z / Ctrl+Y', 'desfaz / refaz no laudo do Agfa'),
     @('Win+Shift+L', 'limpa tudo e sai'),
     @('Win+Shift+Q', 'limpa tudo e desliga')
 )
