@@ -350,8 +350,9 @@ Secao 'autohotkey'
 Passo 'AutoHotkey' {
     Parar $ahkDir
     $r = Instalar 'AutoHotkey/AutoHotkey' { param($t) "AutoHotkey_$($t.TrimStart('v')).zip" } $ahkDir
-    Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' @{ SaunaDeLaudos = "`"$ahkDir\AutoHotkey64.exe`" `"$root\main.ahk`"" } String
-    Det 'inicia junto com o Windows'
+    $exe = "`"$ahkDir\AutoHotkey64.exe`""
+    Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' @{ SaunaDeLaudos = "$exe `"$root\main.ahk`""; SaunaDesfazer = "$exe `"$root\desfazer.ahk`"" } String
+    Det 'main.ahk e desfazer.ahk iniciam junto com o Windows'
     $r
 }
 
@@ -389,6 +390,7 @@ Passo 'Explorer' {
 
 Passo 'Abrir' {
     Start-Process "$ahkDir\AutoHotkey64.exe" "`"$root\main.ahk`""
+    Start-Process "$ahkDir\AutoHotkey64.exe" "`"$root\desfazer.ahk`""
     Start-Process "$braveDir\brave.exe" $braveArgs
     Det 'AutoHotkey e Brave abertos'
 }
@@ -411,7 +413,8 @@ $atalhos = @(
     @('Win+Shift+C', 'abre o Claude'),
     @('Win+Shift+T', 'janela sempre no topo'),
     @('Lateral mouse', 'segura / solta o clique esquerdo'),
-    @('Ctrl+Z / Ctrl+Y', 'desfaz / refaz no laudo do Agfa'),
+    @('Ctrl+Z', 'desfaz no laudo do Agfa'),
+    @('Ctrl+Shift+Z', 'refaz no laudo do Agfa'),
     @('Win+Shift+L', 'limpa tudo e sai'),
     @('Win+Shift+Q', 'limpa tudo e desliga')
 )

@@ -2,9 +2,8 @@
 #SingleInstance Force
 Persistent
 
-; Ctrl+Z / Ctrl+Y no editor de laudos do Agfa (IMPAX Agility).
+; Ctrl+Z / Ctrl+Shift+Z no editor de laudos do Agfa (IMPAX Agility).
 ; O editor e Swing: o texto e lido e editado pela Java Access Bridge.
-; Roda sozinho ou incluido no main.ahk, nunca os dois ao mesmo tempo.
 
 global Jab := Map(), JabEstado := 0, Campos := [], JanelasAgfa := Map()
 
@@ -13,21 +12,36 @@ TECLADO   := 2000    ; texto que muda sem tecla nesse intervalo veio de fora (ou
 GRANDE    := 200     ; recolocar mais que isso de uma vez pede confirmacao
 MAXPASSOS := 300
 
-if A_PtrSize = 8 {
-    InstallKeybdHook
-    SetTimer DzVigiar, 400
-    if A_LineFile = A_ScriptFullPath
-        TrayTip "Ctrl+Z e Ctrl+Y ligados no Agfa", "Desfazer"
+if A_PtrSize != 8 {
+    MsgBox "Abra com o AutoHotkey64.exe: o Java do Agfa e 64 bits.", "Desfazer"
+    ExitApp
 }
+A_IconTip := "Desfazer no Agfa (Ctrl+Z / Ctrl+Shift+Z)"
+LigarBridge()
+InstallKeybdHook
+SetTimer DzVigiar, 400
 
 #HotIf AgfaAtivo()
 $^z:: DzPasso(-1, "^z")
-$^y:: DzPasso(1, "^y")
 $^+z:: DzPasso(1, "^+z")
 #HotIf
 
+; a bridge so funciona com ela ligada no perfil do usuario antes do Agfa abrir
+LigarBridge() {
+    arq := EnvGet("USERPROFILE") "\.accessibility.properties"
+    try if RegExMatch(FileRead(arq), "m)^[ \t]*assistive_technologies[ \t]*=.*AccessBridge")
+        return
+    if MsgBox("Para o Ctrl+Z funcionar no Agfa, a Java Access Bridge precisa estar ligada para o seu usuário.`n`n"
+            . "Isso só acrescenta uma linha em`n" arq "`n(sem admin; para desfazer, apague a linha).`n`nLigar agora?",
+            "Desfazer", "YesNo Icon? 262144") != "Yes"
+        ExitApp
+    FileAppend "`nassistive_technologies=com.sun.java.accessibility.AccessBridge`nscreen_magnifier_present=true`n", arq, "UTF-8-RAW"
+    if WinExist("ahk_exe javaw.exe")
+        MsgBox "Ligada. Feche e abra o Agfa para valer.", "Desfazer", 262144
+}
+
 AgfaAtivo() {
-    if A_PtrSize != 8 || JabEstado < 0 || !(hwnd := WinActive("ahk_exe javaw.exe"))
+    if JabEstado < 0 || !(hwnd := WinActive("ahk_exe javaw.exe"))
         return 0
     if !JanelasAgfa.Has(hwnd) {
         if JanelasAgfa.Count > 50

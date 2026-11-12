@@ -27,5 +27,3 @@ Sair(modo) {
 }
 
 OnExit((*) => GetKeyState("LButton") ? Send("{LButton up}") : 0)
-
-#Include *i %A_ScriptDir%\desfazer.ahk
