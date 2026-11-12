@@ -5,7 +5,7 @@ Persistent
 ; Ctrl+Z / Ctrl+Shift+Z no editor de laudos do Agfa (IMPAX Agility).
 ; O editor e Swing: o texto e lido e editado pela Java Access Bridge.
 
-global Jab := Map(), JabEstado := 0, Campos := [], JanelasAgfa := Map()
+global Jab := Map(), JabEstado := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0
 
 PALAVRAS  := 1       ; palavras digitadas por passo de desfazer
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
@@ -25,6 +25,9 @@ SetTimer DzVigiar, 250
 #HotIf AgfaAtivo()
 $^z:: DzPasso(-1, "^z")
 $^+z:: DzPasso(1, "^+z")
+~^v:: {
+    global UltimoColar := A_TickCount
+}
 #HotIf
 
 ; a bridge so funciona com ela ligada no perfil do usuario antes do Agfa abrir
@@ -83,10 +86,17 @@ Observar(c) {
 Ver(c, t, checarTeclado) {
     if t == c.visto
         return
-    ext := checarTeclado ? A_TimeIdleKeyboard > TECLADO : c.externo
+    ext := checarTeclado ? A_TimeIdleKeyboard > TECLADO || TrocaSemColar(c.visto, t) : c.externo
     if c.hist.Length && c.visto !== c.hist[c.idx] && (ext != c.externo || !Continua(c.hist[c.idx], c.visto, t))
         Registrar(c)
     c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount, c.externo := ext
+}
+
+; num intervalo de leitura ninguem digita 10 letras por cima de 10 outras; sem Ctrl+V, foi o Agfa
+; trocando o texto (outro laudo com o mesmo modelo, aberto enquanto alguma tecla era usada)
+TrocaSemColar(a, b) {
+    d := Diff(a, b)
+    return StrLen(a) - d.p - d.s >= 10 && StrLen(b) - d.p - d.s >= 10 && A_TickCount - UltimoColar > TECLADO
 }
 
 Continua(base, a, b) {
