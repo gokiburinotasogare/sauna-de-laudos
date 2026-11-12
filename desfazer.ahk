@@ -9,7 +9,6 @@ global Jab := Map(), JabEstado := 0, Campos := [], JanelasAgfa := Map()
 
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
 TECLADO   := 2000    ; texto que muda sem tecla nesse intervalo veio de fora (outro laudo, ditado)
-GRANDE    := 200     ; recolocar mais que isso de uma vez pede confirmacao
 MAXPASSOS := 300
 
 if A_PtrSize != 8 {
@@ -110,8 +109,8 @@ Trocou(a, b) {
 
 DzPasso(dir, tecla) {
     Critical
-    hwnd := AgfaAtivo(), c := ""
-    try c := CampoAtual(hwnd)
+    c := ""
+    try c := CampoAtual(AgfaAtivo())
     if !IsObject(c) {
         Send tecla
         return
@@ -128,14 +127,7 @@ DzPasso(dir, tecla) {
         alvoIdx := c.idx + dir
         if alvoIdx < 1 || alvoIdx > c.hist.Length
             return Dica(dir < 0 ? "Nada para desfazer" : "Nada para refazer")
-        alvo := c.hist[alvoIdx]
-
-        d := Diff(c.visto, alvo)
-        n := StrLen(alvo) - d.p - d.s
-        if n >= GRANDE && !Confirmar(hwnd, SubStr(alvo, d.p + 1, n))
-            return
-
-        ok := Aplicar(c, alvo)
+        ok := Aplicar(c, c.hist[alvoIdx])
         c.visto := LerTudo(c), c.n := StrLen(c.visto), c.mudou := A_TickCount
         if ok {
             c.idx := alvoIdx
@@ -193,16 +185,6 @@ Posicionar(c, p, n) {
             return true
     }
     return false
-}
-
-Confirmar(hwnd, texto) {
-    previa := Trim(RegExReplace(SubStr(texto, 1, 160), "\s+", " "))
-    r := MsgBox("Vai recolocar " StrLen(texto) " caracteres de uma vez:`n`n" previa " ...`n`nContinuar?",
-                "Desfazer", "YesNo Icon! Default2 262144")
-    WinActivate hwnd
-    WinWaitActive hwnd, , 2
-    Sleep 150
-    return r = "Yes"
 }
 
 ; prefixo e sufixo em comum, por busca binaria
