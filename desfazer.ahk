@@ -5,7 +5,7 @@ Persistent
 ; Ctrl+Z / Ctrl+Shift+Z no editor de laudos do Agfa (IMPAX Agility).
 ; O editor e Swing: o texto e lido e editado pela Java Access Bridge.
 
-global Jab := Map(), JabEstado := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0
+global Jab := Map(), JabEstado := 0, JabDesde := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0
 
 PALAVRAS  := 1       ; palavras digitadas por passo de desfazer
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
@@ -17,7 +17,7 @@ if A_PtrSize != 8 {
     MsgBox "Abra com o AutoHotkey64.exe: o Java do Agfa e 64 bits.", "Desfazer"
     ExitApp
 }
-A_IconTip := "Desfazer no Agfa (Ctrl+Z / Ctrl+Shift+Z)"
+A_IconTip := "Desfazer no Agfa: Ctrl+Z desfaz, Ctrl+Shift+Z refaz"
 LigarBridge()
 InstallKeybdHook
 SetTimer DzVigiar, 250
@@ -37,13 +37,13 @@ LigarBridge() {
     arq := EnvGet("USERPROFILE") "\.accessibility.properties"
     try if RegExMatch(FileRead(arq), "m)^[ \t]*assistive_technologies[ \t]*=.*AccessBridge")
         return
-    if MsgBox("Para o Ctrl+Z funcionar no Agfa, a Java Access Bridge precisa estar ligada para o seu usuário.`n`n"
-            . "Isso só acrescenta uma linha em`n" arq "`n(sem admin; para desfazer, apague a linha).`n`nLigar agora?",
-            "Desfazer", "YesNo Icon? 262144") != "Yes"
+    if MsgBox("Para o Ctrl+Z funcionar no Agfa, preciso ligar um recurso de acessibilidade do Java no seu usuário.`n`n"
+            . "Não precisa de administrador e não muda nada no Agfa. Isso só é feito uma vez.`n`nLigar agora?",
+            "Desfazer no Agfa", "YesNo Icon? 262144") != "Yes"
         ExitApp
     FileAppend "`nassistive_technologies=com.sun.java.accessibility.AccessBridge`nscreen_magnifier_present=true`n", arq, "UTF-8-RAW"
     if WinExist("ahk_exe javaw.exe")
-        MsgBox "Ligada. Feche e abra o Agfa para valer.", "Desfazer", 262144
+        MsgBox "Pronto. Agora feche o Agfa por completo e abra de novo.", "Desfazer no Agfa", 262144
 }
 
 AgfaAtivo() {
@@ -176,9 +176,12 @@ Trocou(a, b) {
 DzPasso(dir, tecla) {
     Critical
     c := ""
-    try c := CampoAtual(AgfaAtivo())
+    hwnd := AgfaAtivo()
+    try c := CampoAtual(hwnd)
     if !IsObject(c) {
         Send tecla
+        if hwnd && JabEstado = 1 && A_TickCount - JabDesde > 3000 && !JabCall("isJavaWindow", "Ptr", hwnd)
+            Dica("O Ctrl+Z vai funcionar depois que você fechar e abrir o Agfa.", 4000)
         return
     }
     try {
@@ -305,7 +308,7 @@ CampoAtual(hwnd) {
 }
 
 CarregarJab(hwnd) {
-    global JabEstado
+    global JabEstado, JabDesde
     SplitPath WinGetProcessPath(hwnd), , &bin
     h := 0
     for dll in [bin "\WindowsAccessBridge-64.dll", A_WinDir "\System32\WindowsAccessBridge-64.dll"]
@@ -318,11 +321,12 @@ CarregarJab(hwnd) {
         if !Jab[f] {
             JabEstado := -1
             SetTimer DzVigiar, 0
+            MsgBox "Não encontrei no Agfa o recurso que o Ctrl+Z usa. Ele vai ficar desligado neste PC.", "Desfazer no Agfa", 262144
             return ""
         }
     }
     JabCall("Windows_run")
-    JabEstado := 1
+    JabEstado := 1, JabDesde := A_TickCount
     return ""
 }
 
