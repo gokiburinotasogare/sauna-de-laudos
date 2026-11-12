@@ -4,12 +4,14 @@ Persistent
 
 ; Ctrl+Z / Ctrl+Shift+Z no editor de laudos do Agfa (IMPAX Agility), via Java Access Bridge.
 
-global Jab := Map(), JabEstado := 0, JabDesde := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0
+global Jab := Map(), JabEstado := 0, JabDesde := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0, UltimoCampo := ""
 
 PALAVRAS  := 1       ; palavras digitadas por passo de desfazer
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
 TECLADO   := 2000    ; ms sem tecla para uma mudanca contar como externa
 MAXPASSOS := 1000
+JANELA    := 200     ; caracteres lidos de cada lado do cursor
+CONFERE   := 30000   ; ms entre leituras completas com o texto parado
 SEPARA    := "\s.,;:!?()"   ; o que termina uma palavra
 
 if A_PtrSize != 8 {
@@ -58,112 +60,149 @@ AgfaAtivo() {
 }
 
 DzVigiar() {
+    global UltimoCampo
     Critical
     if !(hwnd := AgfaAtivo())
-        return
-    try {
-        c := CampoAtual(hwnd)
-        if IsObject(c)
-            Observar(c)
-    }
+        return UltimoCampo := ""
+    c := ""
+    try c := CampoAtual(hwnd)
+    if IsObject(c)
+        try Observar(c, c !== UltimoCampo)
+    UltimoCampo := c
 }
 
-Observar(c) {
-    i := TextoInfo(c)
-    c.ciclo++
-    if i.n != c.n || !Mod(c.ciclo, 3) || !c.hist.Length {
-        c.n := i.n
-        Ver(c, LerTexto(c, i.n), i.caret, true)
-    }
-    if !c.hist.Length
-        Zerar(c)
-    else if c.visto !== c.hist[c.idx] && A_TickCount - c.mudou >= PAUSA
+Observar(c, voltou) {
+    i := TextoInfo(c), agora := A_TickCount
+    if !c.iniciado || voltou || A_TimeIdleKeyboard >= PAUSA && (c.mudou > c.conferido || agora - c.conferido >= CONFERE)
+        LerCompleto(c, i, voltou ? 2 : 1)
+    else if i.n != c.n || i.caret != c.caret || A_TimeIdleKeyboard < 1000
+        LerPerto(c, i)
+    if c.pend && agora - c.mudou >= PAUSA
         Registrar(c)
 }
 
-Ver(c, t, caret, leitura) {
-    if t == c.visto
-        return
-    d := Diff(c.visto, t)
-    tira := StrLen(c.visto) - d.p - d.s, poe := StrLen(t) - d.p - d.s
-    colou := A_TickCount - UltimoColar <= TECLADO
-    if colou
-        ext := false
-    else if leitura && A_TimeIdleKeyboard > TECLADO
-        ext := true
+LerCompleto(c, i, modo) {
+    t := LerTexto(c, 0, i.n)
+    if c.iniciado
+        Ver(c, t, i.caret, modo)
     else
-        ext := tira && poe && (tira >= 10 && poe >= 10 || caret < d.p - 3 || caret > d.p + poe + 3)
-    bloco := !ext && (colou || poe >= 8 || tira >= 10 || tira >= 2 && poe >= 1)
-
-    if c.hist.Length && c.visto !== c.hist[c.idx]
-        && (ext != c.externo || bloco || c.bloco || !Continua(c.hist[c.idx], c.visto, d, tira, poe))
-        Registrar(c)
-    c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount, c.externo := ext, c.bloco := bloco, c.colou := colou
-    if bloco && c.hist.Length
-        Registrar(c)
+        Iniciar(c, t, i.caret)
+    c.conferido := A_TickCount
 }
 
-Continua(base, a, d, tira, poe) {
-    if (StrLen(a) >= StrLen(base)) != (poe >= tira)
-        return false
-    d1 := Diff(base, a)
-    return d.p <= StrLen(a) - d1.s && d.p + tira >= d1.p
+LerPerto(c, i) {
+    delta := i.n - c.n
+    lo := Max(0, i.caret - JANELA), hi := Min(i.n, i.caret + JANELA), hiV := hi - delta
+    if hiV < lo || hiV > c.n
+        return LerCompleto(c, i, 1)
+    novo := LerTexto(c, lo, hi), velho := SubStr(c.visto, lo + 1, hiV - lo)
+    if novo == velho {
+        if delta
+            return LerCompleto(c, i, 1)
+        c.caret := i.caret
+        return
+    }
+    d := Diff(velho, novo)
+    if !d.p && lo || !d.s && hi < i.n
+        return LerCompleto(c, i, 1)
+    Ver(c, SubStr(c.visto, 1, lo) novo SubStr(c.visto, hiV + 1), i.caret, 1,
+        {p: lo + d.p, tira: StrLen(velho) - d.p - d.s, poe: StrLen(novo) - d.p - d.s})
+}
+
+Iniciar(c, t, caret) {
+    c.visto := t, c.n := StrLen(t), c.caret := caret, c.iniciado := true
+    Zerar(c)
 }
 
 Zerar(c) {
-    c.hist := [c.visto], c.idx := 1, c.externo := c.bloco := c.colou := false
+    c.hist := [], c.idx := 0, c.base := c.visto, c.pend := "", c.externo := c.bloco := c.colou := false
 }
+
+; modo: 0 Ctrl+Z, 1 leitura, 2 texto mudou enquanto o campo estava sem foco
+Ver(c, t, caret, modo, mud := "") {
+    c.caret := caret
+    if !IsObject(mud) {
+        if t == c.visto
+            return
+        d := Diff(c.visto, t)
+        mud := {p: d.p, tira: StrLen(c.visto) - d.p - d.s, poe: StrLen(t) - d.p - d.s}
+    }
+    p := mud.p, tira := mud.tira, poe := mud.poe
+    colou := A_TickCount - UltimoColar <= TECLADO
+    if modo = 2
+        ext := true
+    else if colou
+        ext := false
+    else if modo = 1 && A_TimeIdleKeyboard > TECLADO
+        ext := true
+    else
+        ext := tira && poe && (tira >= 10 && poe >= 10 || caret < p - 3 || caret > p + poe + 3)
+    bloco := !ext && (colou || poe >= 8 || tira >= 10 || tira >= 2 && poe >= 1)
+
+    if c.pend && (ext != c.externo || bloco || c.bloco || !Continua(c.pend, p, tira, poe))
+        Registrar(c)
+    if c.pend
+        c.pend := {ini: Min(c.pend.ini, p), fim: Max(c.pend.fim, p + tira) + poe - tira, saldo: c.pend.saldo + poe - tira}
+    else
+        c.pend := {ini: p, fim: p + poe, saldo: poe - tira}
+    c.visto := t, c.n := StrLen(t), c.mudou := A_TickCount, c.externo := ext, c.bloco := bloco, c.colou := colou
+    if bloco
+        Registrar(c)
+}
+
+Continua(r, p, tira, poe) => (r.saldo >= 0) == (poe >= tira) && p <= r.fim && p + tira >= r.ini
 
 Registrar(c) {
-    base := c.hist[c.idx]
-    if !c.colou && Trocou(base, c.visto)
+    r := c.pend, ext := c.externo, bloco := c.bloco, colou := c.colou
+    velho := SubStr(c.base, r.ini + 1, r.fim - r.saldo - r.ini)
+    novo := SubStr(c.visto, r.ini + 1, r.fim - r.ini)
+    d := Diff(velho, novo)
+    p := r.ini + d.p
+    velho := SubStr(velho, d.p + 1, StrLen(velho) - d.p - d.s)
+    novo := SubStr(novo, d.p + 1, StrLen(novo) - d.p - d.s)
+    c.pend := "", c.externo := c.bloco := c.colou := false
+    if velho == "" && novo == ""
+        return c.base := c.visto
+    if !colou && Trocou(c.base, c.visto, velho) || ext && velho != ""
         return Zerar(c)
-    if c.externo {
-        d := Diff(base, c.visto)
-        if StrLen(base) - d.p - d.s
-            return Zerar(c)
-        novos := [c.visto]
-    } else
-        novos := c.bloco ? [c.visto] : Etapas(base, c.visto)
     while c.hist.Length > c.idx
         c.hist.Pop()
-    for t in novos
-        c.hist.Push(t)
+    if ext || bloco || velho != ""
+        c.hist.Push({p: p, velho: velho, novo: novo})
+    else
+        for e in Etapas(p, novo)
+            c.hist.Push(e)
     if c.hist.Length > MAXPASSOS
         c.hist.RemoveAt(1, c.hist.Length - MAXPASSOS)
-    c.idx := c.hist.Length, c.externo := c.bloco := c.colou := false
+    c.idx := c.hist.Length, c.base := c.visto
 }
 
-Etapas(base, novo) {
-    d := Diff(base, novo)
-    if StrLen(base) - d.p - d.s
-        return [novo]
-    ins := SubStr(novo, d.p + 1, StrLen(novo) - d.p - d.s)
-    antes := SubStr(base, 1, d.p), depois := SubStr(base, d.p + 1)
-    etapas := [], pos := 1, n := 0
-    while RegExMatch(ins, "[^" SEPARA "][" SEPARA "]+", &m, pos) {
+Etapas(p, novo) {
+    etapas := [], ini := 0, pos := 1, n := 0
+    while RegExMatch(novo, "[^" SEPARA "][" SEPARA "]+", &m, pos) {
         pos := m.Pos + m.Len
-        if ++n >= PALAVRAS && pos <= StrLen(ins)
-            etapas.Push(antes SubStr(ins, 1, pos - 1) depois), n := 0
+        if ++n >= PALAVRAS && pos <= StrLen(novo) {
+            etapas.Push({p: p + ini, velho: "", novo: SubStr(novo, ini + 1, pos - 1 - ini)})
+            ini := pos - 1, n := 0
+        }
     }
-    etapas.Push(novo)
+    etapas.Push({p: p + ini, velho: "", novo: SubStr(novo, ini + 1)})
     return etapas
 }
 
-Trocou(a, b) {
+Trocou(a, b, velho) {
     la := StrLen(Trim(a, " `t`r`n")), lb := StrLen(Trim(b, " `t`r`n"))
     if la < 10
         return lb >= 50
     if la < 50 || lb < 50
         return false
-    d := Diff(a, b)
-    return d.p + d.s < 0.2 * Max(StrLen(a), StrLen(b))
+    return StrLen(a) - StrLen(velho) < 0.2 * Max(StrLen(a), StrLen(b))
 }
 
 DzPasso(dir, tecla) {
+    global UltimoCampo
     Critical
-    c := ""
-    hwnd := AgfaAtivo()
+    hwnd := AgfaAtivo(), c := ""
     try c := CampoAtual(hwnd)
     if !IsObject(c) {
         Send tecla
@@ -171,38 +210,52 @@ DzPasso(dir, tecla) {
             Dica("O Ctrl+Z vai funcionar depois que você reiniciar o Agfa.", 4000)
         return
     }
+    voltou := c !== UltimoCampo, UltimoCampo := c
     try {
-        t := LerTudo(c, &caret)
-        Ver(c, t, caret, false)
-        if !c.hist.Length
-            Zerar(c)
-        else if c.visto !== c.hist[c.idx]
+        i := TextoInfo(c), t := LerTexto(c, 0, i.n)
+        if c.iniciado
+            Ver(c, t, i.caret, voltou ? 2 : 0)
+        else
+            Iniciar(c, t, i.caret)
+        c.conferido := A_TickCount
+        if c.pend
             Registrar(c)
 
-        alvoIdx := c.idx + dir
-        if alvoIdx < 1 || alvoIdx > c.hist.Length
+        k := dir < 0 ? c.idx : c.idx + 1
+        if k < 1 || k > c.hist.Length
             return
-        ok := Aplicar(c, c.hist[alvoIdx])
-        c.visto := LerTudo(c), c.n := StrLen(c.visto), c.mudou := A_TickCount
+        passo := c.hist[k]
+        de := dir < 0 ? passo.novo : passo.velho, para := dir < 0 ? passo.velho : passo.novo
+        if SubStr(c.visto, passo.p + 1, StrLen(de)) !== de
+            return Zerar(c)
+        esperado := SubStr(c.visto, 1, passo.p) para SubStr(c.visto, passo.p + StrLen(de) + 1)
+
+        ok := Aplicar(c, passo.p, StrLen(de), para, esperado)
         if ok
-            c.idx := alvoIdx
-        else
+            c.idx := dir < 0 ? k - 1 : k
+        i := TextoInfo(c)
+        c.visto := ok ? esperado : LerTexto(c, 0, i.n)
+        c.base := c.visto, c.n := StrLen(c.visto), c.caret := i.caret, c.pend := ""
+        c.mudou := c.conferido := A_TickCount
+        if !ok
             Dica("O texto não voltou exatamente como era. Confira.", 4000)
-    } catch as e
-        Dica("Desfazer falhou: " e.Message, 4000)
+    } catch as erro
+        Dica("Desfazer falhou: " erro.Message, 4000)
 }
 
-Aplicar(c, alvo) {
+Aplicar(c, p, n, poe, esperado) {
     clip := ""
     try {
         Loop 2 {
-            t := LerTudo(c)
-            if t == alvo
-                return true
-            d := Diff(t, alvo)
-            tira := StrLen(t) - d.p - d.s
-            poe := SubStr(alvo, d.p + 1, StrLen(alvo) - d.p - d.s)
-            if !Posicionar(c, d.p, tira)
+            if A_Index > 1 {
+                real := LerTexto(c, 0, TextoInfo(c).n)
+                if real == esperado
+                    return true
+                d := Diff(real, esperado)
+                p := d.p, n := StrLen(real) - d.p - d.s
+                poe := SubStr(esperado, d.p + 1, StrLen(esperado) - d.p - d.s)
+            }
+            if !Posicionar(c, p, n)
                 continue
             if poe == ""
                 Send "{Delete}"
@@ -212,9 +265,11 @@ Aplicar(c, alvo) {
                 Copiar(poe)
                 Send "^v"
             }
+            a := Max(0, p - 20), b := Min(StrLen(esperado), p + StrLen(poe) + 20)
+            trecho := SubStr(esperado, a + 1, b - a)
             Loop 40 {
                 Sleep 30
-                if LerTudo(c) == alvo
+                if TextoInfo(c).n = StrLen(esperado) && LerTexto(c, a, b) == trecho
                     return true
             }
         }
@@ -282,7 +337,8 @@ CampoAtual(hwnd) {
         Soltar(vm, ac)
         return ""
     }
-    c := {vm: vm, ac: ac, hist: [], idx: 0, n: -1, ciclo: 0, visto: "", mudou: 0, externo: false, bloco: false, colou: false}
+    c := {vm: vm, ac: ac, iniciado: false, visto: "", base: "", n: 0, caret: 0, hist: [], idx: 0, pend: "",
+          mudou: 0, conferido: 0, externo: false, bloco: false, colou: false}
     Campos.InsertAt(1, c)
     while Campos.Length > 6 {
         v := Campos.Pop()
@@ -328,23 +384,18 @@ TextoInfo(c) {
     return {n: NumGet(b, 0, "Int"), caret: NumGet(b, 4, "Int")}
 }
 
-LerTexto(c, n) {
-    s := "", ini := 0
-    while ini < n {
-        fim := Min(ini + 8000, n) - 1
-        tam := fim - ini + 2
+LerTexto(c, ini, fim) {
+    s := ""
+    while ini < fim {
+        ate := Min(ini + 8000, fim) - 1
+        tam := ate - ini + 2
         b := Buffer(tam * 2, 0)
-        if !JabCall("getAccessibleTextRange", "Int", c.vm, "Int64", c.ac, "Int", ini, "Int", fim, "Ptr", b, "Short", tam)
+        if !JabCall("getAccessibleTextRange", "Int", c.vm, "Int64", c.ac, "Int", ini, "Int", ate, "Ptr", b, "Short", tam)
             throw Error("leitura do texto falhou")
         s .= StrGet(b, tam - 1, "UTF-16")
-        ini := fim + 1
+        ini := ate + 1
     }
     return s
-}
-
-LerTudo(c, &caret := 0) {
-    i := TextoInfo(c), caret := i.caret
-    return LerTexto(c, i.n)
 }
 
 Copiar(t) {
