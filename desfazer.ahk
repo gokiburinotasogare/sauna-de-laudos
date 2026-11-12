@@ -4,7 +4,7 @@ Persistent
 
 ; Ctrl+Z / Ctrl+Shift+Z no editor de laudos do Agfa (IMPAX Agility), via Java Access Bridge.
 
-global Jab := Map(), JabEstado := 0, JabDesde := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0, UltimoCampo := ""
+global Jab := Map(), JabEstado := 0, JabDesde := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0, UltimoCampo := "", Ignorado := "", Intervalo := 250
 
 PALAVRAS  := 1       ; palavras digitadas por passo de desfazer
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
@@ -60,15 +60,17 @@ AgfaAtivo() {
 }
 
 DzVigiar() {
-    global UltimoCampo
+    global UltimoCampo, Intervalo
     Critical
-    if !(hwnd := AgfaAtivo())
-        return UltimoCampo := ""
     c := ""
-    try c := CampoAtual(hwnd)
-    if IsObject(c)
-        try Observar(c, c !== UltimoCampo)
+    if hwnd := AgfaAtivo() {
+        try c := CampoAtual(hwnd)
+        if IsObject(c)
+            try Observar(c, c !== UltimoCampo)
+    }
     UltimoCampo := c
+    if Intervalo != (t := A_TimeIdlePhysical < 1500 ? 250 : 1000)
+        SetTimer DzVigiar, Intervalo := t
 }
 
 Observar(c, voltou) {
@@ -212,12 +214,15 @@ DzPasso(dir, tecla) {
     }
     voltou := c !== UltimoCampo, UltimoCampo := c
     try {
-        i := TextoInfo(c), t := LerTexto(c, 0, i.n)
-        if c.iniciado
-            Ver(c, t, i.caret, voltou ? 2 : 0)
-        else
-            Iniciar(c, t, i.caret)
-        c.conferido := A_TickCount
+        i := TextoInfo(c)
+        if !c.iniciado || voltou || i.n != c.n || A_TickCount - c.desfeito > 1000 {
+            t := LerTexto(c, 0, i.n)
+            if c.iniciado
+                Ver(c, t, i.caret, voltou ? 2 : 0)
+            else
+                Iniciar(c, t, i.caret)
+            c.conferido := A_TickCount
+        }
         if c.pend
             Registrar(c)
 
@@ -226,13 +231,13 @@ DzPasso(dir, tecla) {
             return
         passo := c.hist[k]
         de := dir < 0 ? passo.novo : passo.velho, para := dir < 0 ? passo.velho : passo.novo
-        if SubStr(c.visto, passo.p + 1, StrLen(de)) !== de
+        if SubStr(c.visto, passo.p + 1, StrLen(de)) !== de || LerTexto(c, passo.p, passo.p + StrLen(de)) !== de
             return Zerar(c)
         esperado := SubStr(c.visto, 1, passo.p) para SubStr(c.visto, passo.p + StrLen(de) + 1)
 
         ok := Aplicar(c, passo.p, StrLen(de), para, esperado)
         if ok
-            c.idx := dir < 0 ? k - 1 : k
+            c.idx := dir < 0 ? k - 1 : k, c.desfeito := A_TickCount
         i := TextoInfo(c)
         c.visto := ok ? esperado : LerTexto(c, 0, i.n)
         c.base := c.visto, c.n := StrLen(c.visto), c.caret := i.caret, c.pend := ""
@@ -267,8 +272,8 @@ Aplicar(c, p, n, poe, esperado) {
             }
             a := Max(0, p - 20), b := Min(StrLen(esperado), p + StrLen(poe) + 20)
             trecho := SubStr(esperado, a + 1, b - a)
-            Loop 40 {
-                Sleep 30
+            Loop 80 {
+                Sleep 15
                 if TextoInfo(c).n = StrLen(esperado) && LerTexto(c, a, b) == trecho
                     return true
             }
@@ -286,37 +291,31 @@ Posicionar(c, p, n) {
     else
         JabCall("setCaretPosition", "Int", c.vm, "Int64", c.ac, "Int", p)
     b := Buffer(2056, 0)
-    Loop 5 {
+    Loop 10 {
         if JabCall("getAccessibleTextSelectionInfo", "Int", c.vm, "Int64", c.ac, "Ptr", b)
             && NumGet(b, 0, "Int") = p && NumGet(b, 4, "Int") = p + n
             return true
-        Sleep 20
+        Sleep 10
     }
     return false
 }
 
 Diff(a, b) {
-    la := StrLen(a), lb := StrLen(b), m := Min(la, lb)
-    lo := 0, hi := m
+    la := StrLen(a), lb := StrLen(b), m := Min(la, lb), pa := StrPtr(a), pb := StrPtr(b)
+    p := DllCall("ntdll\RtlCompareMemory", "Ptr", pa, "Ptr", pb, "UPtr", m * 2, "UPtr") // 2
+    lo := 0, hi := m - p
     while lo < hi {
         k := (lo + hi + 1) // 2
-        if SubStr(a, 1, k) == SubStr(b, 1, k)
-            lo := k
-        else
+        if DllCall("msvcrt\memcmp", "Ptr", pa + (la - k) * 2, "Ptr", pb + (lb - k) * 2, "UPtr", k * 2, "Int")
             hi := k - 1
-    }
-    p := lo, lo := 0, hi := m - p
-    while lo < hi {
-        k := (lo + hi + 1) // 2
-        if SubStr(a, la - k + 1) == SubStr(b, lb - k + 1)
-            lo := k
         else
-            hi := k - 1
+            lo := k
     }
     return {p: p, s: lo}
 }
 
 CampoAtual(hwnd) {
+    global Ignorado
     if JabEstado = 0
         return CarregarJab(hwnd)
     if !JabCall("isJavaWindow", "Ptr", hwnd)
@@ -327,18 +326,26 @@ CampoAtual(hwnd) {
     for c in Campos
         if c.vm = vm && JabCall("isSameObject", "Int", vm, "Int64", ac, "Int64", c.ac) {
             Soltar(vm, ac)
+            if A_Index > 1
+                Campos.InsertAt(1, Campos.RemoveAt(A_Index))
             return c
         }
+    if Ignorado && Ignorado.vm = vm && JabCall("isSameObject", "Int", vm, "Int64", ac, "Int64", Ignorado.ac) {
+        Soltar(vm, ac)
+        return ""
+    }
     info := Buffer(6200, 0)
     if !JabCall("getAccessibleContextInfo", "Int", vm, "Int64", ac, "Ptr", info)
         || !NumGet(info, 6180, "Int")
         || !InStr(StrGet(info.Ptr + 5632, 256, "UTF-16"), "editable")
         || InStr(StrGet(info.Ptr + 4608, 256, "UTF-16"), "password") {
-        Soltar(vm, ac)
+        if Ignorado
+            Soltar(Ignorado.vm, Ignorado.ac)
+        Ignorado := {vm: vm, ac: ac}
         return ""
     }
     c := {vm: vm, ac: ac, iniciado: false, visto: "", base: "", n: 0, caret: 0, hist: [], idx: 0, pend: "",
-          mudou: 0, conferido: 0, externo: false, bloco: false, colou: false}
+          mudou: 0, conferido: 0, desfeito: 0, externo: false, bloco: false, colou: false}
     Campos.InsertAt(1, c)
     while Campos.Length > 6 {
         v := Campos.Pop()
