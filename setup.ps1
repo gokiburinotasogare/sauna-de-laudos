@@ -17,6 +17,7 @@ $estado    = @{ ok = 0; avisos = 0; falhas = 0; aviso = $false; det = New-Object
 $relogio   = [Diagnostics.Stopwatch]::StartNew()
 $snapDir   = "$root\snapshot"
 $snapArq   = "$snapDir\snapshot.json"
+$win10     = [Environment]::OSVersion.Version.Build -lt 22000
 $snap      = @{ inicio = $null; historico = $null; valores = @{}; chaves = @{}; criadas = @(); pastas = @{}; arquivos = @{} }
 
 # ---------------------------------------------------------------- saida
@@ -187,8 +188,10 @@ function Instalar([string]$projeto, [scriptblock]$arquivo, [string]$destino) {
     Parar $destino
     if (Test-Path $destino) { Remove-Item $destino -Recurse -Force }
     New-Item -ItemType Directory $destino | Out-Null
-    tar -xf $zip -C $destino
-    if ($LASTEXITCODE) { throw 'falha ao extrair' }
+    if (Get-Command tar.exe -ErrorAction SilentlyContinue) {
+        tar -xf $zip -C $destino
+        if ($LASTEXITCODE) { throw 'falha ao extrair' }
+    } else { Expand-Archive -LiteralPath $zip -DestinationPath $destino -Force }
     Remove-Item $zip
     Set-Content $marca $rel.Tag
     "$($rel.Tag) instalado"
@@ -210,7 +213,7 @@ $cores = 'DarkGray', 'DarkGray', 'DarkGray', 'DarkMagenta', 'DarkMagenta', 'Mage
 Write-Host ''
 for ($i = 0; $i -lt $banner.Count; $i++) { Write-Host "  $($banner[$i])" -ForegroundColor $cores[$i] }
 Write-Host ''
-Write-Host ("  {0}  |  {1}  |  ps {2}  |  {3:dd/MM HH:mm}" -f $env:COMPUTERNAME, $env:USERNAME, "$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor)", (Get-Date)) -ForegroundColor DarkGray
+Write-Host ("  {0}  |  {1}  |  windows {2}  |  ps {3}  |  {4:dd/MM HH:mm}" -f $env:COMPUTERNAME, $env:USERNAME, $(if ($win10) { 10 } else { 11 }), "$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor)", (Get-Date)) -ForegroundColor DarkGray
 Write-Host ('  ' + ('-' * 64)) -ForegroundColor DarkGray
 
 New-Item -ItemType Directory -Force $root, "$root\Downloads" | Out-Null
@@ -234,7 +237,13 @@ Passo 'Estado original' {
     AnotarChave 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband'
     AnotarChave 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU'
     AnotarArquivo 'Brave.lnk' $atalho
+    AnotarChave 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache'
+    foreach ($k in Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist' -ErrorAction SilentlyContinue) {
+        AnotarChave "$($k.PSPath)\Count"
+    }
+    AnotarCriacao 'HKCU:\Software\BraveSoftware'
     Det 'recentes, barra fixada, historico do Win+R e do PowerShell'
+    Det 'registro de programas abertos (Iniciar e Explorer)'
     Det "o cleanup devolve tudo como estava; guardado em $snapDir"
     'novo'
 }
@@ -251,7 +260,14 @@ Passo 'Modo escuro' {
 Passo 'Barra de tarefas' {
     Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' @{ SearchboxTaskbarMode = 0; BingSearchEnabled = 0 }
     Reg $adv @{ ShowTaskViewButton = 0; ShowCopilotButton = 0; TaskbarMn = 0; TaskbarSd = 0; MMTaskbarEnabled = 0 }
-    Det 'sem busca, visao de tarefas, copilot e chat'
+    if ($win10) {
+        Reg $adv @{ ShowCortanaButton = 0 }
+        Reg "$adv\People" @{ PeopleBand = 0 }
+        Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer' @{ HideSCAMeetNow = 1 }
+        try { Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds' @{ ShellFeedsTaskbarViewMode = 2 } }
+        catch { Aviso 'o Windows nao deixou esconder Noticias e interesses' }
+        Det 'sem busca, visao de tarefas, Cortana, Pessoas, Meet Now e Noticias e interesses'
+    } else { Det 'sem busca, visao de tarefas, copilot e chat' }
     Det 'barra so no monitor principal'
 }
 
@@ -266,6 +282,10 @@ Passo 'Desafixar' {
 }
 
 Passo 'Bandeja' {
+    if ($win10) {
+        Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer' @{ EnableAutoTray = 1 }
+        return 'icones extras escondidos na setinha'
+    }
     $itens = @(Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue)
     $itens | ForEach-Object { Reg $_.PSPath @{ IsPromoted = 0 } }
     "$($itens.Count) icones escondidos"
