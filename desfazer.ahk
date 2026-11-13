@@ -4,7 +4,7 @@ Persistent
 
 ; Ctrl+Z / Ctrl+Shift+Z no editor de laudos do Agfa (IMPAX Agility), via Java Access Bridge.
 
-global Jab := Map(), JabEstado := 0, JabDesde := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0, UltimoCampo := "", Ignorado := "", Intervalo := 250
+global Jab := Map(), JabEstado := 0, JabDesde := 0, Campos := [], JanelasAgfa := Map(), UltimoColar := 0, UltimoCampo := "", Ignorado := "", Intervalo := 250, UltimoErro := ""
 
 PALAVRAS  := 1       ; palavras digitadas por passo de desfazer
 PAUSA     := 1000    ; ms sem mudanca para fechar um passo
@@ -24,6 +24,8 @@ InstallKeybdHook
 SetTimer DzVigiar, 250
 
 #MaxThreadsBuffer True
+^!+d:: Diagnostico()
+
 #HotIf AgfaAtivo()
 $^z:: DzPasso(-1, "^z")
 $^+z:: DzPasso(1, "^+z")
@@ -60,13 +62,16 @@ AgfaAtivo() {
 }
 
 DzVigiar() {
-    global UltimoCampo, Intervalo
+    global UltimoCampo, Intervalo, UltimoErro
     Critical
     c := ""
     if hwnd := AgfaAtivo() {
-        try c := CampoAtual(hwnd)
-        if IsObject(c)
-            try Observar(c, c !== UltimoCampo)
+        try {
+            c := CampoAtual(hwnd)
+            if IsObject(c)
+                Observar(c, c !== UltimoCampo)
+        } catch as erro
+            UltimoErro := erro.Message " (linha " erro.Line ")"
     }
     UltimoCampo := c
     if Intervalo != (t := A_TimeIdlePhysical < 1500 ? 250 : 1000)
@@ -165,7 +170,7 @@ Registrar(c) {
     c.pend := "", c.externo := c.bloco := c.colou := false
     if velho == "" && novo == ""
         return c.base := c.visto
-    if !colou && Trocou(c.base, c.visto, velho) || ext && velho != ""
+    if !colou && (ext || bloco) && Trocou(c.base, c.visto, velho) || ext && velho != ""
         return Zerar(c)
     while c.hist.Length > c.idx
         c.hist.Pop()
@@ -202,7 +207,7 @@ Trocou(a, b, velho) {
 }
 
 DzPasso(dir, tecla) {
-    global UltimoCampo
+    global UltimoCampo, UltimoErro
     Critical
     hwnd := AgfaAtivo(), c := ""
     try c := CampoAtual(hwnd)
@@ -244,8 +249,31 @@ DzPasso(dir, tecla) {
         c.mudou := c.conferido := A_TickCount
         if !ok
             Dica("O texto não voltou exatamente como era. Confira.", 4000)
-    } catch as erro
+    } catch as erro {
+        UltimoErro := erro.Message " (linha " erro.Line ")"
         Dica("Desfazer falhou: " erro.Message, 4000)
+    }
+}
+
+Diagnostico() {
+    hwnd := WinActive("A"), l := []
+    try l.Push("Janela: " WinGetProcessName(hwnd) "   " WinGetProcessPath(hwnd))
+    l.Push("É o Agfa: " (AgfaAtivo() ? "sim" : "não"))
+    l.Push("Bridge: " (JabEstado = 1 ? "carregada" : JabEstado < 0 ? "indisponível" : "ainda não carregada"))
+    if JabEstado = 1
+        l.Push("Bridge enxerga a janela: " (JabCall("isJavaWindow", "Ptr", hwnd) ? "sim" : "não"))
+    c := ""
+    try c := CampoAtual(AgfaAtivo())
+    if IsObject(c)
+        l.Push("Campo de texto com foco: sim, " c.n " caracteres, " c.hist.Length " passos, posição " c.idx
+             . (c.pend ? ", mudança pendente" : ""))
+    else
+        l.Push("Campo de texto com foco: não")
+    l.Push("Último erro: " (UltimoErro || "nenhum"))
+    txt := ""
+    for x in l
+        txt .= x "`n"
+    MsgBox txt, "Desfazer no Agfa: diagnóstico", 262144
 }
 
 Aplicar(c, p, n, poe, esperado) {
